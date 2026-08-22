@@ -685,6 +685,23 @@ h1 {
 .nav-circle { width: 8px; height: 8px; border: 1.2px solid currentColor; border-radius: 50%; }
 .nav-triangle { width: 0; height: 0; border-top: 5px solid transparent; border-right: 8px solid currentColor; border-bottom: 5px solid transparent; }
 
+.video-capture-stage {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  width: 340px;
+  pointer-events: none;
+}
+
+.video-capture-stage .phone-frame {
+  width: 340px;
+  box-shadow: none;
+}
+
+.video-capture-stage .demo-message.shown {
+  animation: none;
+}
+
 .public-demo {
   min-height: 100vh;
   display: grid;

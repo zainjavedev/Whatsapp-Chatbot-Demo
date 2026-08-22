@@ -1,6 +1,8 @@
 "use client";
 
-import { startTransition, useEffect, useState } from "react";
+import html2canvas from "html2canvas";
+import { startTransition, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 type Niche = "dental" | "aesthetic" | "clinic" | "spa" | "salon";
 type Device = "android" | "iphone";
@@ -100,360 +102,86 @@ function isDevice(value: string | null): value is Device {
   return value === "android" || value === "iphone";
 }
 
-type VideoBubble = {
-  direction: "incoming" | "outgoing";
-  kind: "text" | "slots" | "confirmation";
-  text?: string;
-  revealAt: number;
-};
-
-const videoWidth = 720;
-const videoHeight = 1280;
+const videoWidth = 1080;
+const videoHeight = 1920;
 const videoDuration = 7200;
+const videoRevealTimes = [0, 550, 1650, 2950, 3850, 4750, 5850];
+const videoTransitionDuration = 240;
 
-function roundedRectangle(
-  context: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number,
-) {
-  const safeRadius = Math.min(radius, width / 2, height / 2);
-  context.beginPath();
-  context.roundRect(x, y, width, height, safeRadius);
+function waitForPaint() {
+  return new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
 }
 
-function wrapCanvasText(context: CanvasRenderingContext2D, text: string, maxWidth: number) {
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let line = "";
-
-  for (const word of words) {
-    const candidate = line ? `${line} ${word}` : word;
-    if (context.measureText(candidate).width <= maxWidth || !line) {
-      line = candidate;
-    } else {
-      lines.push(line);
-      line = word;
-    }
-  }
-
-  if (line) lines.push(line);
-  return lines.length ? lines : [""];
-}
-
-function drawCanvasLines(
-  context: CanvasRenderingContext2D,
-  lines: string[],
-  x: number,
-  y: number,
-  lineHeight: number,
-) {
-  lines.forEach((line, index) => context.fillText(line, x, y + index * lineHeight));
-}
-
-function drawVideoBubble(
-  context: CanvasRenderingContext2D,
-  config: DemoConfig,
-  bubble: VideoBubble,
-  y: number,
-  elapsed: number,
-) {
-  const maxTextWidth = 500;
-  const lineHeight = 31;
-  const businessName = config.businessName.trim() || "Your Business";
-  context.font = "500 22px Arial, sans-serif";
-
-  let lines: string[] = [];
-  let detailLines: string[] = [];
-  if (bubble.kind === "text") {
-    lines = wrapCanvasText(context, bubble.text || "", maxTextWidth);
-  } else if (bubble.kind === "slots") {
-    lines = wrapCanvasText(context, config.botReply, maxTextWidth);
-  } else {
-    detailLines = [
-      config.service,
-      `${config.provider} - Tomorrow at ${config.slotTwo}`,
-      businessName,
-    ].flatMap((line) => wrapCanvasText(context, line, maxTextWidth));
-  }
-
-  const measuredLines = bubble.kind === "confirmation" ? detailLines : lines;
-  const widestLine = Math.max(
-    bubble.kind === "confirmation" ? context.measureText("Appointment confirmed").width : 0,
-    ...measuredLines.map((line) => context.measureText(line).width),
-    bubble.kind === "slots" ? context.measureText(config.slotOne).width : 0,
-    bubble.kind === "slots" ? context.measureText(config.slotTwo).width : 0,
-  );
-  const width = Math.min(570, Math.max(178, widestLine + 42));
-  let height = 48 + measuredLines.length * lineHeight;
-  if (bubble.kind === "slots") height += 108;
-  if (bubble.kind === "confirmation") height += 39;
-
-  const x = bubble.direction === "outgoing" ? videoWidth - 28 - width : 28;
-  const progress = Math.min(1, Math.max(0, (elapsed - bubble.revealAt) / 230));
-
-  if (progress > 0) {
-    context.save();
-    context.globalAlpha = progress;
-    context.translate(0, 14 * (1 - progress));
-    context.fillStyle = bubble.direction === "outgoing" ? "#d9fdd3" : "#ffffff";
-    context.shadowColor = "rgba(26, 45, 37, 0.12)";
-    context.shadowBlur = 8;
-    context.shadowOffsetY = 2;
-    roundedRectangle(context, x, y, width, height, 15);
-    context.fill();
-    context.shadowColor = "transparent";
-
-    let textY = y + 17;
-    if (bubble.kind === "confirmation") {
-      context.fillStyle = "#00725f";
-      context.font = "700 22px Arial, sans-serif";
-      context.fillText("Appointment confirmed", x + 20, textY);
-      textY += 39;
-      context.fillStyle = "#18211d";
-      context.font = "500 22px Arial, sans-serif";
-      drawCanvasLines(context, detailLines, x + 20, textY, lineHeight);
-    } else {
-      context.fillStyle = "#18211d";
-      context.font = "500 22px Arial, sans-serif";
-      drawCanvasLines(context, lines, x + 20, textY, lineHeight);
-      textY += lines.length * lineHeight + 5;
-
-      if (bubble.kind === "slots") {
-        for (const slot of [config.slotOne, config.slotTwo]) {
-          context.strokeStyle = "#e1e7e3";
-          context.lineWidth = 2;
-          context.beginPath();
-          context.moveTo(x + 12, textY);
-          context.lineTo(x + width - 12, textY);
-          context.stroke();
-          context.fillStyle = "#008069";
-          context.font = "700 21px Arial, sans-serif";
-          context.textAlign = "center";
-          context.fillText(slot, x + width / 2, textY + 15);
-          context.textAlign = "left";
-          textY += 54;
-        }
-      }
-    }
-
-    context.fillStyle = "#6d7974";
-    context.font = "400 15px Arial, sans-serif";
-    context.textAlign = "right";
-    context.fillText(bubble.direction === "outgoing" ? "11:19 am  ✓✓" : "11:19 am", x + width - 15, y + height - 23);
-    context.textAlign = "left";
-    context.restore();
-  }
-
-  return height;
-}
-
-function drawVideoFrame(context: CanvasRenderingContext2D, config: DemoConfig, device: Device, elapsed: number) {
-  const businessName = config.businessName.trim() || "Your Business";
-  const avatarLetter = businessName.charAt(0).toUpperCase() || config.avatar;
-  context.clearRect(0, 0, videoWidth, videoHeight);
-  context.fillStyle = "#f7f8f8";
+function drawVideoBackground(context: CanvasRenderingContext2D) {
+  const background = context.createLinearGradient(0, 0, videoWidth, videoHeight);
+  background.addColorStop(0, "#f8f4eb");
+  background.addColorStop(1, "#dfe9e2");
+  context.fillStyle = background;
   context.fillRect(0, 0, videoWidth, videoHeight);
 
-  context.fillStyle = "#ffffff";
-  context.fillRect(0, 0, videoWidth, 156);
-  context.fillStyle = "#18211d";
-  context.font = "600 23px Arial, sans-serif";
-  context.fillText(device === "iphone" ? "9:41" : "11:18", 28, 19);
-  if (device === "iphone") {
-    context.fillStyle = "#111513";
-    roundedRectangle(context, 294, 8, 132, 31, 16);
-    context.fill();
-    context.fillStyle = "#18211d";
-  }
-  context.textAlign = "right";
-  context.fillText(`${device === "iphone" ? "5G" : "4G"}   WiFi   81%`, videoWidth - 28, 19);
-  context.textAlign = "left";
+  const glow = context.createRadialGradient(760, 720, 20, 760, 720, 600);
+  glow.addColorStop(0, "rgba(216, 239, 87, 0.5)");
+  glow.addColorStop(1, "rgba(216, 239, 87, 0)");
+  context.fillStyle = glow;
+  context.fillRect(0, 0, videoWidth, videoHeight);
+}
 
-  const safeBusinessName = businessName.length > 29 ? `${businessName.slice(0, 28)}…` : businessName;
-  if (device === "iphone") {
-    context.fillStyle = "#008069";
-    context.font = "500 38px Arial, sans-serif";
-    context.fillText("‹", 26, 78);
-    context.font = "500 19px Arial, sans-serif";
-    context.fillText("12", 55, 87);
-    context.fillStyle = "#f4d3c7";
-    context.beginPath();
-    context.arc(270, 105, 29, 0, Math.PI * 2);
-    context.fill();
-    context.fillStyle = "#86543f";
-    context.font = "700 24px Arial, sans-serif";
-    context.textAlign = "center";
-    context.fillText(avatarLetter, 270, 97);
-    context.textAlign = "left";
-    context.fillStyle = "#111815";
-    context.font = "700 24px Arial, sans-serif";
-    context.fillText(safeBusinessName, 312, 78);
-    context.fillStyle = "#62706a";
-    context.font = "400 16px Arial, sans-serif";
-    context.fillText("Business account", 312, 111);
+function drawPhoneSnapshot(
+  context: CanvasRenderingContext2D,
+  snapshot: HTMLCanvasElement,
+  opacity = 1,
+) {
+  const scale = Math.min(790 / snapshot.width, 1690 / snapshot.height);
+  const width = snapshot.width * scale;
+  const height = snapshot.height * scale;
+  const x = (videoWidth - width) / 2;
+  const y = (videoHeight - height) / 2;
 
-    context.strokeStyle = "#008069";
-    context.lineWidth = 4;
-    roundedRectangle(context, 594, 76, 32, 24, 6);
-    context.stroke();
-    context.beginPath();
-    context.moveTo(626, 83);
-    context.lineTo(642, 76);
-    context.lineTo(642, 100);
-    context.lineTo(626, 93);
-    context.stroke();
-    context.beginPath();
-    context.moveTo(663, 78);
-    context.bezierCurveTo(663, 92, 674, 103, 688, 103);
-    context.stroke();
-  } else {
-    context.font = "500 48px Arial, sans-serif";
-    context.fillText("‹", 27, 74);
-    context.fillStyle = "#d6e7ff";
-    context.beginPath();
-    context.arc(106, 105, 35, 0, Math.PI * 2);
-    context.fill();
-    context.fillStyle = "#1769aa";
-    context.font = "700 29px Arial, sans-serif";
-    context.textAlign = "center";
-    context.fillText(avatarLetter, 106, 89);
-    context.textAlign = "left";
-    context.fillStyle = "#111815";
-    context.font = "700 27px Arial, sans-serif";
-    context.fillText(safeBusinessName, 158, 77);
-    context.fillStyle = "#62706a";
-    context.font = "400 18px Arial, sans-serif";
-    context.fillText("Business Account", 158, 113);
-    context.fillStyle = "#1d2823";
-    context.font = "500 31px Arial, sans-serif";
-    context.fillText("▣     ☎     ⋮", 542, 86);
-  }
-
-  context.fillStyle = "#efeae2";
-  context.fillRect(0, 156, videoWidth, 960);
   context.save();
-  context.globalAlpha = 0.06;
-  context.strokeStyle = "#688078";
-  context.lineWidth = 2;
-  for (let row = 0; row < 10; row += 1) {
-    for (let column = 0; column < 7; column += 1) {
-      const x = 48 + column * 108 + (row % 2) * 31;
-      const y = 190 + row * 104;
-      context.beginPath();
-      context.arc(x, y, 13, 0, Math.PI * 1.6);
-      context.stroke();
-    }
-  }
+  context.globalAlpha = opacity;
+  context.drawImage(snapshot, x, y, width, height);
   context.restore();
+}
 
-  context.fillStyle = "rgba(255,255,255,.84)";
-  roundedRectangle(context, 316, 174, 88, 38, 15);
+function drawPhoneShadow(context: CanvasRenderingContext2D, snapshot: HTMLCanvasElement) {
+  const scale = Math.min(790 / snapshot.width, 1690 / snapshot.height);
+  const width = snapshot.width * scale;
+  const height = snapshot.height * scale;
+  const x = (videoWidth - width) / 2;
+  const y = (videoHeight - height) / 2;
+
+  context.save();
+  context.fillStyle = "rgba(17, 35, 28, 0.16)";
+  context.shadowColor = "rgba(17, 35, 28, 0.34)";
+  context.shadowBlur = 70;
+  context.shadowOffsetY = 32;
+  context.beginPath();
+  context.roundRect(x + 8, y + 8, width - 16, height - 16, width * 0.1);
   context.fill();
-  context.fillStyle = "#65736d";
-  context.font = "600 17px Arial, sans-serif";
-  context.textAlign = "center";
-  context.fillText("Today", 360, 184);
-  context.textAlign = "left";
+  context.restore();
+}
 
-  const bubbles: VideoBubble[] = [
-    { direction: "outgoing", kind: "text", text: config.customerQuestion, revealAt: 550 },
-    { direction: "incoming", kind: "slots", revealAt: 1650 },
-    { direction: "outgoing", kind: "text", text: config.slotTwo, revealAt: 2950 },
-    { direction: "incoming", kind: "text", text: "Sure. What name should I book it under?", revealAt: 3850 },
-    { direction: "outgoing", kind: "text", text: "Zain Javed", revealAt: 4750 },
-    { direction: "incoming", kind: "confirmation", revealAt: 5850 },
-  ];
+function drawVideoFrame(
+  context: CanvasRenderingContext2D,
+  snapshots: HTMLCanvasElement[],
+  elapsed: number,
+) {
+  drawVideoBackground(context);
+  const step = videoRevealTimes.findLastIndex((revealAt) => elapsed >= revealAt);
+  const safeStep = Math.max(0, step);
+  const transition = safeStep === 0
+    ? 1
+    : Math.min(1, Math.max(0, (elapsed - videoRevealTimes[safeStep]) / videoTransitionDuration));
 
-  const visibleBubbles = bubbles.filter((bubble) => elapsed >= bubble.revealAt);
-  const bubbleHeights = visibleBubbles.map((bubble) => drawVideoBubble(context, config, bubble, 0, -1000));
-  const stackHeight = bubbleHeights.reduce((total, height) => total + height, 0) + Math.max(0, visibleBubbles.length - 1) * 14;
-  let y = Math.max(226, 1098 - stackHeight);
-  for (const [index, bubble] of visibleBubbles.entries()) {
-    drawVideoBubble(context, config, bubble, y, elapsed);
-    y += bubbleHeights[index] + 14;
-  }
-
-  context.fillStyle = device === "iphone" ? "#f8f8f8" : "#efeae2";
-  context.fillRect(0, 1116, videoWidth, 112);
-  if (device === "iphone") {
-    context.strokeStyle = "#718079";
-    context.lineWidth = 3;
-    context.beginPath();
-    context.arc(34, 1167, 21, 0, Math.PI * 2);
-    context.stroke();
-    context.beginPath();
-    context.moveTo(24, 1167);
-    context.lineTo(44, 1167);
-    context.moveTo(34, 1157);
-    context.lineTo(34, 1177);
-    context.stroke();
-
-    context.fillStyle = "#ffffff";
-    context.strokeStyle = "#cfd5d2";
-    roundedRectangle(context, 70, 1135, 565, 64, 32);
-    context.fill();
-    context.stroke();
-    context.fillStyle = "#89948f";
-    context.font = "400 22px Arial, sans-serif";
-    context.fillText("Message", 94, 1157);
-    context.strokeStyle = "#718079";
-    context.strokeRect(583, 1152, 28, 22);
-    context.beginPath();
-    context.arc(597, 1163, 6, 0, Math.PI * 2);
-    context.stroke();
-
-    context.fillStyle = "#718079";
-    roundedRectangle(context, 672, 1148, 13, 23, 7);
-    context.fill();
-    context.strokeStyle = "#718079";
-    context.beginPath();
-    context.arc(678.5, 1161, 12, 0.15, Math.PI - 0.15);
-    context.stroke();
-    context.fillRect(677, 1173, 3, 8);
+  drawPhoneShadow(context, snapshots[safeStep]);
+  if (safeStep > 0 && transition < 1) {
+    drawPhoneSnapshot(context, snapshots[safeStep - 1]);
+    drawPhoneSnapshot(context, snapshots[safeStep], transition);
   } else {
-    context.fillStyle = "#ffffff";
-    roundedRectangle(context, 18, 1132, 620, 70, 35);
-    context.fill();
-    context.fillStyle = "#78857f";
-    context.font = "400 22px Arial, sans-serif";
-    context.fillText("☺   Message", 42, 1155);
-    context.strokeStyle = "#78857f";
-    context.lineWidth = 3;
-    context.strokeRect(574, 1149, 30, 24);
-    context.beginPath();
-    context.arc(589, 1161, 7, 0, Math.PI * 2);
-    context.stroke();
-    context.fillStyle = "#111815";
-    context.beginPath();
-    context.arc(678, 1167, 35, 0, Math.PI * 2);
-    context.fill();
-    context.fillStyle = "#ffffff";
-    roundedRectangle(context, 671, 1148, 14, 24, 7);
-    context.fill();
-    context.strokeStyle = "#ffffff";
-    context.lineWidth = 3;
-    context.beginPath();
-    context.arc(678, 1161, 13, 0.15, Math.PI - 0.15);
-    context.stroke();
-    context.fillRect(676.5, 1173, 3, 8);
+    drawPhoneSnapshot(context, snapshots[safeStep]);
   }
-
-  context.fillStyle = "#f7f8f8";
-  context.fillRect(0, 1228, videoWidth, 52);
-  if (device === "iphone") {
-    context.fillStyle = "#111513";
-    roundedRectangle(context, 260, 1255, 200, 8, 4);
-    context.fill();
-  } else {
-    context.fillStyle = "#737a77";
-    context.font = "500 23px Arial, sans-serif";
-    context.textAlign = "center";
-    context.fillText("■          ○          ◀", 360, 1242);
-  }
-  context.textAlign = "left";
 }
 
 type WhatsAppIconName = "back" | "chevron" | "video" | "videoOutline" | "phone" | "phoneOutline" | "plus" | "menu" | "smile" | "paperclip" | "camera" | "mic" | "signal" | "wifi" | "battery";
@@ -538,13 +266,16 @@ function DemoPhone({
   device,
   animated = false,
   replayKey = 0,
+  forcedStep,
 }: {
   config: DemoConfig;
   device: Device;
   animated?: boolean;
   replayKey?: number;
+  forcedStep?: number;
 }) {
   const [step, setStep] = useState(animated ? 0 : 6);
+  const visibleStep = forcedStep ?? step;
   const businessName = config.businessName.trim() || "Your Business";
   const avatarLetter = businessName.charAt(0).toUpperCase() || config.avatar;
 
@@ -609,29 +340,29 @@ function DemoPhone({
       <div className="wa-chat">
         <span className="today">Today</span>
         <div className="chat-stack">
-          <div className={`bubble outgoing demo-message ${step >= 1 ? "shown" : ""}`}>
+          <div className={`bubble outgoing demo-message ${visibleStep >= 1 ? "shown" : ""}`}>
             {config.customerQuestion}
             <span className="bubble-meta">11:18 am <b>✓✓</b></span>
           </div>
-          <div className={`bubble incoming slot-card demo-message ${step >= 2 ? "shown" : ""}`}>
+          <div className={`bubble incoming slot-card demo-message ${visibleStep >= 2 ? "shown" : ""}`}>
             {config.botReply}
             <span className="slot">{config.slotOne}</span>
             <span className="slot">{config.slotTwo}</span>
             <span className="bubble-meta">11:18 am</span>
           </div>
-          <div className={`bubble outgoing short demo-message ${step >= 3 ? "shown" : ""}`}>
+          <div className={`bubble outgoing short demo-message ${visibleStep >= 3 ? "shown" : ""}`}>
             {config.slotTwo}
             <span className="bubble-meta">11:19 am <b>✓✓</b></span>
           </div>
-          <div className={`bubble incoming demo-message ${step >= 4 ? "shown" : ""}`}>
+          <div className={`bubble incoming demo-message ${visibleStep >= 4 ? "shown" : ""}`}>
             Sure. What name should I book it under?
             <span className="bubble-meta">11:19 am</span>
           </div>
-          <div className={`bubble outgoing short demo-message ${step >= 5 ? "shown" : ""}`}>
+          <div className={`bubble outgoing short demo-message ${visibleStep >= 5 ? "shown" : ""}`}>
             Zain Javed
             <span className="bubble-meta">11:19 am <b>✓✓</b></span>
           </div>
-          <div className={`bubble incoming confirmation demo-message ${step >= 6 ? "shown" : ""}`}>
+          <div className={`bubble incoming confirmation demo-message ${visibleStep >= 6 ? "shown" : ""}`}>
             <strong>Appointment confirmed</strong>
             <span>{config.service}</span>
             <span>{config.provider} · Tomorrow at {config.slotTwo}</span>
@@ -674,7 +405,9 @@ export default function Home() {
   const [demoMode, setDemoMode] = useState(false);
   const [copied, setCopied] = useState(false);
   const [replayKey, setReplayKey] = useState(0);
+  const [captureStep, setCaptureStep] = useState(6);
   const [videoState, setVideoState] = useState<"idle" | "rendering" | "done" | "failed">("idle");
+  const captureStageRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const initialize = window.setTimeout(() => {
@@ -736,6 +469,22 @@ export default function Home() {
     let stream: MediaStream | null = null;
 
     try {
+      const capturePhone = captureStageRef.current?.querySelector<HTMLElement>(".phone-frame");
+      if (!capturePhone) throw new Error("The phone mockup is not ready.");
+
+      await document.fonts.ready;
+      const snapshots: HTMLCanvasElement[] = [];
+      for (let step = 0; step < videoRevealTimes.length; step += 1) {
+        flushSync(() => setCaptureStep(step));
+        await waitForPaint();
+        snapshots.push(await html2canvas(capturePhone, {
+          backgroundColor: null,
+          logging: false,
+          scale: 3,
+          useCORS: true,
+        }));
+      }
+
       const canvas = document.createElement("canvas");
       canvas.width = videoWidth;
       canvas.height = videoHeight;
@@ -754,7 +503,7 @@ export default function Home() {
       stream = canvas.captureStream(30);
       const recorder = new MediaRecorder(stream, {
         ...(format ? { mimeType: format.mimeType } : {}),
-        videoBitsPerSecond: 5_000_000,
+        videoBitsPerSecond: 10_000_000,
       });
       const chunks: BlobPart[] = [];
       const recording = new Promise<Blob>((resolve, reject) => {
@@ -765,13 +514,13 @@ export default function Home() {
         recorder.onstop = () => resolve(new Blob(chunks, { type: recorder.mimeType || "video/webm" }));
       });
 
-      drawVideoFrame(context, config, device, 0);
+      drawVideoFrame(context, snapshots, 0);
       recorder.start(200);
       const startedAt = performance.now();
       await new Promise<void>((resolve) => {
         function renderFrame(now: number) {
           const elapsed = Math.min(now - startedAt, videoDuration);
-          drawVideoFrame(context!, config, device, elapsed);
+          drawVideoFrame(context!, snapshots, elapsed);
           if (elapsed < videoDuration) {
             requestAnimationFrame(renderFrame);
           } else {
@@ -805,45 +554,56 @@ export default function Home() {
       window.setTimeout(() => setVideoState("idle"), 3000);
     } finally {
       stream?.getTracks().forEach((track) => track.stop());
+      setCaptureStep(6);
     }
   }
 
+  const videoCaptureStage = (
+    <div className="video-capture-stage" ref={captureStageRef} aria-hidden="true">
+      <DemoPhone config={config} device={device} forcedStep={captureStep} />
+    </div>
+  );
+
   if (demoMode) {
     return (
-      <main className="public-demo">
-        <div className="demo-copy">
-          <p className="eyebrow">Booking automation demo</p>
-          <h1>Every inquiry can become a booking.</h1>
-          <p>
-            A simulated WhatsApp flow personalized for {config.businessName.trim() || "your business"}.
-          </p>
-          <div className="demo-actions">
-            <button className="replay-button" type="button" onClick={() => setReplayKey((key) => key + 1)}>
-              Replay conversation
-            </button>
-            <button className="download-button" type="button" onClick={downloadVideo} disabled={videoState === "rendering"}>
-              {videoState === "rendering" ? "Rendering video..." : videoState === "done" ? "Downloaded" : videoState === "failed" ? "Export failed" : "Download video"}
-            </button>
+      <>
+        <main className="public-demo">
+          <div className="demo-copy">
+            <p className="eyebrow">Booking automation demo</p>
+            <h1>Every inquiry can become a booking.</h1>
+            <p>
+              A simulated WhatsApp flow personalized for {config.businessName.trim() || "your business"}.
+            </p>
+            <div className="demo-actions">
+              <button className="replay-button" type="button" onClick={() => setReplayKey((key) => key + 1)}>
+                Replay conversation
+              </button>
+              <button className="download-button" type="button" onClick={downloadVideo} disabled={videoState === "rendering"}>
+                {videoState === "rendering" ? "Rendering video..." : videoState === "done" ? "Downloaded" : videoState === "failed" ? "Export failed" : "Download video"}
+              </button>
+            </div>
+            <small>Demo simulation · No patient data</small>
           </div>
-          <small>Demo simulation · No patient data</small>
-        </div>
-        <section className="public-phone" aria-label="Animated WhatsApp booking demo">
-          <div className="preview-glow" />
-          <DemoPhone config={config} device={device} animated replayKey={replayKey} />
-        </section>
-      </main>
+          <section className="public-phone" aria-label="Animated WhatsApp booking demo">
+            <div className="preview-glow" />
+            <DemoPhone config={config} device={device} animated replayKey={replayKey} />
+          </section>
+        </main>
+        {videoCaptureStage}
+      </>
     );
   }
 
   return (
-    <main className="workspace">
-      <header className="topbar">
-        <div className="wordmark">
-          <span className="wordmark-dot" />
-          Demo Lab
-        </div>
-        <span className="top-note">WhatsApp booking demos</span>
-      </header>
+    <>
+      <main className="workspace">
+        <header className="topbar">
+          <div className="wordmark">
+            <span className="wordmark-dot" />
+            Demo Lab
+          </div>
+          <span className="top-note">WhatsApp booking demos</span>
+        </header>
 
       <section className="editor-panel">
         <p className="eyebrow">Personal demo builder</p>
@@ -905,14 +665,16 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="preview-panel" aria-label="WhatsApp demo preview">
-        <div className="preview-label">
-          <span>Live preview</span>
-          <strong>{config.businessName.trim() || "Your Business"}</strong>
-        </div>
-        <div className="preview-glow" />
-        <DemoPhone config={config} device={device} />
-      </section>
-    </main>
+        <section className="preview-panel" aria-label="WhatsApp demo preview">
+          <div className="preview-label">
+            <span>Live preview</span>
+            <strong>{config.businessName.trim() || "Your Business"}</strong>
+          </div>
+          <div className="preview-glow" />
+          <DemoPhone config={config} device={device} />
+        </section>
+      </main>
+      {videoCaptureStage}
+    </>
   );
 }
