@@ -30,7 +30,7 @@ const presets: Record<Niche, Omit<DemoConfig, "niche" | "practiceType" | "custom
     businessName: "Pearl Dental Clinic",
     avatar: "D",
     customerQuestion: "Assalam o Alaikum, is a dentist available tomorrow? I have severe tooth pain.",
-    botReply: "Wa Alaikum Assalam. Yes, Dr. Hamza is available tomorrow. Please choose a time:",
+    botReply: "Wa Alaikum Assalam. Yes, {provider} is available tomorrow. Please choose a time:",
     teamBotReply: "Wa Alaikum Assalam. Yes, a dentist is available tomorrow. Please choose a time:",
     provider: "Dr. Hamza",
     service: "Dental consultation",
@@ -42,7 +42,7 @@ const presets: Record<Niche, Omit<DemoConfig, "niche" | "practiceType" | "custom
     businessName: "Aura Aesthetic Clinic",
     avatar: "A",
     customerQuestion: "Hi, what is the price for laser hair removal? Do you have a slot tomorrow?",
-    botReply: "Hi. Packages start from PKR 6,500. These consultation slots are available tomorrow:",
+    botReply: "Hi. Packages start from PKR 6,500. {provider} has these consultation slots tomorrow:",
     teamBotReply: "Hi. Packages start from PKR 6,500. Our clinic has these consultation slots tomorrow:",
     provider: "Dr. Sara",
     service: "Laser consultation",
@@ -54,7 +54,7 @@ const presets: Record<Niche, Omit<DemoConfig, "niche" | "practiceType" | "custom
     businessName: "City Care Clinic",
     avatar: "C",
     customerQuestion: "Assalam o Alaikum, is the doctor available tomorrow evening?",
-    botReply: "Wa Alaikum Assalam. Yes, the doctor is available. Please choose a time:",
+    botReply: "Wa Alaikum Assalam. Yes, {provider} is available tomorrow evening. Please choose a time:",
     teamBotReply: "Wa Alaikum Assalam. Yes, a doctor is available tomorrow evening. Please choose a time:",
     provider: "Dr. Ahmed",
     service: "Doctor consultation",
@@ -66,7 +66,7 @@ const presets: Record<Niche, Omit<DemoConfig, "niche" | "practiceType" | "custom
     businessName: "Sens Spa",
     avatar: "S",
     customerQuestion: "Hi, what is the price for a full body massage? Is 4 PM available tomorrow?",
-    botReply: "Hi. A full body massage is PKR 6,000. These times are available tomorrow:",
+    botReply: "Hi. A full body massage is PKR 6,000. {provider} has these times available tomorrow:",
     teamBotReply: "Hi. A full body massage is PKR 6,000. Our team has these times available tomorrow:",
     provider: "Ayesha",
     service: "Full body massage",
@@ -78,7 +78,7 @@ const presets: Record<Niche, Omit<DemoConfig, "niche" | "practiceType" | "custom
     businessName: "Canvas Salon",
     avatar: "S",
     customerQuestion: "Hi, can I book a haircut tomorrow afternoon?",
-    botReply: "Hi. Yes, these haircut appointments are available tomorrow:",
+    botReply: "Hi. Yes, {provider} has these haircut appointments available tomorrow:",
     teamBotReply: "Hi. Yes, our team has these haircut appointments available tomorrow:",
     provider: "Maha",
     service: "Haircut appointment",
@@ -89,6 +89,11 @@ const presets: Record<Niche, Omit<DemoConfig, "niche" | "practiceType" | "custom
 
 const nicheKeys = Object.keys(presets) as Niche[];
 
+function singleProviderReply(niche: Niche, provider: string) {
+  const fallback = niche === "dental" ? "the dentist" : niche === "spa" || niche === "salon" ? "your provider" : "the doctor";
+  return presets[niche].botReply.replace("{provider}", provider.trim() || fallback);
+}
+
 function configFor(niche: Niche, practiceType: PracticeType = "single"): DemoConfig {
   const preset = presets[niche];
   return {
@@ -98,7 +103,7 @@ function configFor(niche: Niche, practiceType: PracticeType = "single"): DemoCon
     customerName: defaultCustomerName,
     avatar: preset.avatar,
     customerQuestion: preset.customerQuestion,
-    botReply: practiceType === "team" ? preset.teamBotReply : preset.botReply,
+    botReply: practiceType === "team" ? preset.teamBotReply : singleProviderReply(niche, preset.provider),
     provider: preset.provider,
     service: preset.service,
     slotOne: preset.slotOne,
@@ -526,14 +531,15 @@ export default function Home() {
         ? params.get("practice") as PracticeType
         : "single";
       const base = configFor(niche, practiceType);
+      const provider = params.get("provider") || base.provider;
 
       setConfig({
         ...base,
         businessName: params.get("business") || base.businessName,
         customerName: params.get("customer") || base.customerName,
         customerQuestion: params.get("question") || base.customerQuestion,
-        botReply: params.get("reply") || base.botReply,
-        provider: params.get("provider") || base.provider,
+        botReply: params.get("reply") || (practiceType === "single" ? singleProviderReply(niche, provider) : base.botReply),
+        provider,
         service: params.get("service") || base.service,
         slotOne: params.get("slot1") || base.slotOne,
         slotTwo: params.get("slot2") || base.slotTwo,
@@ -550,6 +556,17 @@ export default function Home() {
     setCopied(false);
   }
 
+  function updateProvider(provider: string) {
+    setConfig((current) => ({
+      ...current,
+      provider,
+      botReply: current.practiceType === "single"
+        ? singleProviderReply(current.niche, provider)
+        : current.botReply,
+    }));
+    setCopied(false);
+  }
+
   function chooseNiche(niche: Niche) {
     startTransition(() => setConfig(configFor(niche, config.practiceType)));
     setCopied(false);
@@ -561,7 +578,7 @@ export default function Home() {
       practiceType,
       botReply: practiceType === "team"
         ? presets[current.niche].teamBotReply
-        : presets[current.niche].botReply,
+        : singleProviderReply(current.niche, current.provider),
     }));
     setCopied(false);
   }
@@ -579,6 +596,7 @@ export default function Home() {
     url.searchParams.set("practice", config.practiceType);
     url.searchParams.set("business", config.businessName);
     url.searchParams.set("customer", config.customerName);
+    url.searchParams.set("provider", config.provider);
     url.searchParams.set("device", device);
     return url.toString();
   }
@@ -825,6 +843,20 @@ export default function Home() {
             ))}
           </div>
         </fieldset>
+
+        {config.practiceType === "single" && (
+          <div className="field-group">
+            <label htmlFor="provider">
+              {config.niche === "spa" || config.niche === "salon" ? "Provider name" : "Doctor name"}
+            </label>
+            <input
+              id="provider"
+              value={config.provider}
+              onChange={(event) => updateProvider(event.target.value)}
+              placeholder="Enter name"
+            />
+          </div>
+        )}
 
         <fieldset className="field-group">
           <legend>Phone</legend>
