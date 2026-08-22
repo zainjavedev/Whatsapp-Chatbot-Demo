@@ -110,7 +110,7 @@ const videoWidth = 1080;
 const videoHeight = 1920;
 const videoDuration = 7200;
 const videoRevealTimes = [0, 550, 1650, 2950, 3850, 4750, 5850];
-const videoTransitionDuration = 280;
+const videoTransitionDuration = 200;
 
 type VideoBubbleBounds = {
   x: number;
@@ -228,15 +228,14 @@ function drawAnimatedBubble(
   const radius = bubble.radius * placement.scale;
   const tail = 8 * bubble.cssScale * placement.scale;
   const translateY = 9 * bubble.cssScale * placement.scale * (1 - eased);
-  const bubbleScale = 0.985 + 0.015 * eased;
-  const centerX = x + width / 2;
-  const centerY = y + height / 2;
+  const bubbleScale = 0.94 + 0.06 * eased;
+  const originX = bubble.direction === "incoming" ? x : x + width;
+  const originY = y + height;
 
   context.save();
-  context.globalAlpha = eased;
-  context.translate(centerX, centerY + translateY);
+  context.translate(originX, originY + translateY);
   context.scale(bubbleScale, bubbleScale);
-  context.translate(-centerX, -centerY);
+  context.translate(-originX, -originY);
   context.beginPath();
   context.roundRect(x, y, width, height, radius);
   if (bubble.direction === "incoming") {
