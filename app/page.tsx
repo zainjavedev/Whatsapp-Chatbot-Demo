@@ -6,9 +6,11 @@ import { flushSync } from "react-dom";
 
 type Niche = "dental" | "aesthetic" | "clinic" | "spa" | "salon";
 type Device = "android" | "iphone";
+type PracticeType = "single" | "team";
 
 type DemoConfig = {
   niche: Niche;
+  practiceType: PracticeType;
   businessName: string;
   customerName: string;
   avatar: string;
@@ -22,13 +24,14 @@ type DemoConfig = {
 
 const defaultCustomerName = "Ubaid Khan";
 
-const presets: Record<Niche, Omit<DemoConfig, "niche" | "customerName"> & { label: string }> = {
+const presets: Record<Niche, Omit<DemoConfig, "niche" | "practiceType" | "customerName"> & { label: string; teamBotReply: string }> = {
   dental: {
     label: "Dental clinic",
     businessName: "Pearl Dental Clinic",
     avatar: "D",
     customerQuestion: "Assalam o Alaikum, is a dentist available tomorrow? I have severe tooth pain.",
     botReply: "Wa Alaikum Assalam. Yes, Dr. Hamza is available tomorrow. Please choose a time:",
+    teamBotReply: "Wa Alaikum Assalam. Yes, a dentist is available tomorrow. Please choose a time:",
     provider: "Dr. Hamza",
     service: "Dental consultation",
     slotOne: "11:30 AM",
@@ -40,6 +43,7 @@ const presets: Record<Niche, Omit<DemoConfig, "niche" | "customerName"> & { labe
     avatar: "A",
     customerQuestion: "Hi, what is the price for laser hair removal? Do you have a slot tomorrow?",
     botReply: "Hi. Packages start from PKR 6,500. These consultation slots are available tomorrow:",
+    teamBotReply: "Hi. Packages start from PKR 6,500. Our clinic has these consultation slots tomorrow:",
     provider: "Dr. Sara",
     service: "Laser consultation",
     slotOne: "2:30 PM",
@@ -51,6 +55,7 @@ const presets: Record<Niche, Omit<DemoConfig, "niche" | "customerName"> & { labe
     avatar: "C",
     customerQuestion: "Assalam o Alaikum, is the doctor available tomorrow evening?",
     botReply: "Wa Alaikum Assalam. Yes, the doctor is available. Please choose a time:",
+    teamBotReply: "Wa Alaikum Assalam. Yes, a doctor is available tomorrow evening. Please choose a time:",
     provider: "Dr. Ahmed",
     service: "Doctor consultation",
     slotOne: "5:30 PM",
@@ -62,6 +67,7 @@ const presets: Record<Niche, Omit<DemoConfig, "niche" | "customerName"> & { labe
     avatar: "S",
     customerQuestion: "Hi, what is the price for a full body massage? Is 4 PM available tomorrow?",
     botReply: "Hi. A full body massage is PKR 6,000. These times are available tomorrow:",
+    teamBotReply: "Hi. A full body massage is PKR 6,000. Our team has these times available tomorrow:",
     provider: "Ayesha",
     service: "Full body massage",
     slotOne: "2:00 PM",
@@ -73,6 +79,7 @@ const presets: Record<Niche, Omit<DemoConfig, "niche" | "customerName"> & { labe
     avatar: "S",
     customerQuestion: "Hi, can I book a haircut tomorrow afternoon?",
     botReply: "Hi. Yes, these haircut appointments are available tomorrow:",
+    teamBotReply: "Hi. Yes, our team has these haircut appointments available tomorrow:",
     provider: "Maha",
     service: "Haircut appointment",
     slotOne: "3:00 PM",
@@ -82,15 +89,16 @@ const presets: Record<Niche, Omit<DemoConfig, "niche" | "customerName"> & { labe
 
 const nicheKeys = Object.keys(presets) as Niche[];
 
-function configFor(niche: Niche): DemoConfig {
+function configFor(niche: Niche, practiceType: PracticeType = "single"): DemoConfig {
   const preset = presets[niche];
   return {
     niche,
+    practiceType,
     businessName: preset.businessName,
     customerName: defaultCustomerName,
     avatar: preset.avatar,
     customerQuestion: preset.customerQuestion,
-    botReply: preset.botReply,
+    botReply: practiceType === "team" ? preset.teamBotReply : preset.botReply,
     provider: preset.provider,
     service: preset.service,
     slotOne: preset.slotOne,
@@ -104,6 +112,10 @@ function isNiche(value: string | null): value is Niche {
 
 function isDevice(value: string | null): value is Device {
   return value === "android" || value === "iphone";
+}
+
+function isPracticeType(value: string | null): value is PracticeType {
+  return value === "single" || value === "team";
 }
 
 const videoWidth = 1080;
@@ -510,7 +522,10 @@ export default function Home() {
     const initialize = window.setTimeout(() => {
       const params = new URLSearchParams(window.location.search);
       const niche = isNiche(params.get("niche")) ? params.get("niche") as Niche : "dental";
-      const base = configFor(niche);
+      const practiceType = isPracticeType(params.get("practice"))
+        ? params.get("practice") as PracticeType
+        : "single";
+      const base = configFor(niche, practiceType);
 
       setConfig({
         ...base,
@@ -536,7 +551,18 @@ export default function Home() {
   }
 
   function chooseNiche(niche: Niche) {
-    startTransition(() => setConfig(configFor(niche)));
+    startTransition(() => setConfig(configFor(niche, config.practiceType)));
+    setCopied(false);
+  }
+
+  function choosePracticeType(practiceType: PracticeType) {
+    setConfig((current) => ({
+      ...current,
+      practiceType,
+      botReply: practiceType === "team"
+        ? presets[current.niche].teamBotReply
+        : presets[current.niche].botReply,
+    }));
     setCopied(false);
   }
 
@@ -550,6 +576,7 @@ export default function Home() {
     url.search = "";
     url.searchParams.set("view", "demo");
     url.searchParams.set("niche", config.niche);
+    url.searchParams.set("practice", config.practiceType);
     url.searchParams.set("business", config.businessName);
     url.searchParams.set("customer", config.customerName);
     url.searchParams.set("device", device);
@@ -778,6 +805,22 @@ export default function Home() {
                 onClick={() => chooseNiche(key)}
               >
                 {presets[key].label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+
+        <fieldset className="field-group">
+          <legend>Clinic type</legend>
+          <div className="device-switch">
+            {(["single", "team"] as PracticeType[]).map((option) => (
+              <button
+                className={config.practiceType === option ? "device-option active" : "device-option"}
+                key={option}
+                type="button"
+                onClick={() => choosePracticeType(option)}
+              >
+                {option === "single" ? "Single doctor" : "Clinic team"}
               </button>
             ))}
           </div>
