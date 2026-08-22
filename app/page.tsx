@@ -10,6 +10,7 @@ type Device = "android" | "iphone";
 type DemoConfig = {
   niche: Niche;
   businessName: string;
+  customerName: string;
   avatar: string;
   customerQuestion: string;
   botReply: string;
@@ -19,7 +20,9 @@ type DemoConfig = {
   slotTwo: string;
 };
 
-const presets: Record<Niche, Omit<DemoConfig, "niche"> & { label: string }> = {
+const defaultCustomerName = "Ubaid Khan";
+
+const presets: Record<Niche, Omit<DemoConfig, "niche" | "customerName"> & { label: string }> = {
   dental: {
     label: "Dental clinic",
     businessName: "Pearl Dental Clinic",
@@ -84,6 +87,7 @@ function configFor(niche: Niche): DemoConfig {
   return {
     niche,
     businessName: preset.businessName,
+    customerName: defaultCustomerName,
     avatar: preset.avatar,
     customerQuestion: preset.customerQuestion,
     botReply: preset.botReply,
@@ -359,7 +363,7 @@ function DemoPhone({
             <span className="bubble-meta">11:19 am</span>
           </div>
           <div className={`bubble outgoing short demo-message ${visibleStep >= 5 ? "shown" : ""}`}>
-            Zain Javed
+            {config.customerName.trim() || defaultCustomerName}
             <span className="bubble-meta">11:19 am <b>✓✓</b></span>
           </div>
           <div className={`bubble incoming confirmation demo-message ${visibleStep >= 6 ? "shown" : ""}`}>
@@ -418,6 +422,7 @@ export default function Home() {
       setConfig({
         ...base,
         businessName: params.get("business") || base.businessName,
+        customerName: params.get("customer") || base.customerName,
         customerQuestion: params.get("question") || base.customerQuestion,
         botReply: params.get("reply") || base.botReply,
         provider: params.get("provider") || base.provider,
@@ -453,6 +458,7 @@ export default function Home() {
     url.searchParams.set("view", "demo");
     url.searchParams.set("niche", config.niche);
     url.searchParams.set("business", config.businessName);
+    url.searchParams.set("customer", config.customerName);
     url.searchParams.set("device", device);
     return url.toString();
   }
@@ -617,6 +623,16 @@ export default function Home() {
             value={config.businessName}
             onChange={(event) => update("businessName", event.target.value)}
             placeholder="Enter prospect name"
+          />
+        </div>
+
+        <div className="field-group">
+          <label htmlFor="customer">Customer name</label>
+          <input
+            id="customer"
+            value={config.customerName}
+            onChange={(event) => update("customerName", event.target.value)}
+            placeholder={defaultCustomerName}
           />
         </div>
 
