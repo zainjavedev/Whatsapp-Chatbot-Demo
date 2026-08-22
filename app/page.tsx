@@ -78,8 +78,18 @@ const presets: Record<Niche, Omit<DemoConfig, "niche"> & { label: string }> = {
 const nicheKeys = Object.keys(presets) as Niche[];
 
 function configFor(niche: Niche): DemoConfig {
-  const { label: _label, ...preset } = presets[niche];
-  return { niche, ...preset };
+  const preset = presets[niche];
+  return {
+    niche,
+    businessName: preset.businessName,
+    avatar: preset.avatar,
+    customerQuestion: preset.customerQuestion,
+    botReply: preset.botReply,
+    provider: preset.provider,
+    service: preset.service,
+    slotOne: preset.slotOne,
+    slotTwo: preset.slotTwo,
+  };
 }
 
 function isNiche(value: string | null): value is Niche {
@@ -539,13 +549,10 @@ function DemoPhone({
   const avatarLetter = businessName.charAt(0).toUpperCase() || config.avatar;
 
   useEffect(() => {
-    if (!animated) {
-      setStep(6);
-      return;
-    }
+    if (!animated) return;
 
-    setStep(0);
     const timers = [
+      window.setTimeout(() => setStep(0), 0),
       window.setTimeout(() => setStep(1), 550),
       window.setTimeout(() => setStep(2), 1650),
       window.setTimeout(() => setStep(3), 2950),
@@ -670,22 +677,26 @@ export default function Home() {
   const [videoState, setVideoState] = useState<"idle" | "rendering" | "done" | "failed">("idle");
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const niche = isNiche(params.get("niche")) ? params.get("niche") as Niche : "dental";
-    const base = configFor(niche);
+    const initialize = window.setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      const niche = isNiche(params.get("niche")) ? params.get("niche") as Niche : "dental";
+      const base = configFor(niche);
 
-    setConfig({
-      ...base,
-      businessName: params.get("business") || base.businessName,
-      customerQuestion: params.get("question") || base.customerQuestion,
-      botReply: params.get("reply") || base.botReply,
-      provider: params.get("provider") || base.provider,
-      service: params.get("service") || base.service,
-      slotOne: params.get("slot1") || base.slotOne,
-      slotTwo: params.get("slot2") || base.slotTwo,
-    });
-    setDevice(isDevice(params.get("device")) ? params.get("device") as Device : "android");
-    setDemoMode(params.get("view") === "demo");
+      setConfig({
+        ...base,
+        businessName: params.get("business") || base.businessName,
+        customerQuestion: params.get("question") || base.customerQuestion,
+        botReply: params.get("reply") || base.botReply,
+        provider: params.get("provider") || base.provider,
+        service: params.get("service") || base.service,
+        slotOne: params.get("slot1") || base.slotOne,
+        slotTwo: params.get("slot2") || base.slotTwo,
+      });
+      setDevice(isDevice(params.get("device")) ? params.get("device") as Device : "android");
+      setDemoMode(params.get("view") === "demo");
+    }, 0);
+
+    return () => window.clearTimeout(initialize);
   }, []);
 
   function update<K extends keyof DemoConfig>(key: K, value: DemoConfig[K]) {
@@ -837,7 +848,7 @@ export default function Home() {
       <section className="editor-panel">
         <p className="eyebrow">Personal demo builder</p>
         <h1>Build their demo.</h1>
-        <p className="lede">Choose the niche and add the prospect's business name.</p>
+        <p className="lede">Choose the niche and add the prospect&apos;s business name.</p>
 
         <div className="field-group">
           <label htmlFor="business">Business name</label>
