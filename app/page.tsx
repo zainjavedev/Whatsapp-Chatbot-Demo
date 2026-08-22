@@ -110,7 +110,23 @@ const videoWidth = 1080;
 const videoHeight = 1920;
 const videoDuration = 7200;
 const videoRevealTimes = [0, 550, 1650, 2950, 3850, 4750, 5850];
-const videoTransitionDuration = 240;
+const videoTransitionDuration = 280;
+
+type VideoBubbleBounds = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  radius: number;
+  cssScale: number;
+  direction: "incoming" | "outgoing";
+};
+
+type VideoSnapshot = {
+  full: HTMLCanvasElement;
+  base: HTMLCanvasElement;
+  bubble?: VideoBubbleBounds;
+};
 
 function waitForPaint() {
   return new Promise<void>((resolve) => {
@@ -132,29 +148,34 @@ function drawVideoBackground(context: CanvasRenderingContext2D) {
   context.fillRect(0, 0, videoWidth, videoHeight);
 }
 
+function getPhonePlacement(snapshot: HTMLCanvasElement) {
+  const scale = Math.min(790 / snapshot.width, 1690 / snapshot.height);
+  const width = snapshot.width * scale;
+  const height = snapshot.height * scale;
+  return {
+    scale,
+    width,
+    height,
+    x: (videoWidth - width) / 2,
+    y: (videoHeight - height) / 2,
+  };
+}
+
 function drawPhoneSnapshot(
   context: CanvasRenderingContext2D,
   snapshot: HTMLCanvasElement,
   opacity = 1,
 ) {
-  const scale = Math.min(790 / snapshot.width, 1690 / snapshot.height);
-  const width = snapshot.width * scale;
-  const height = snapshot.height * scale;
-  const x = (videoWidth - width) / 2;
-  const y = (videoHeight - height) / 2;
+  const placement = getPhonePlacement(snapshot);
 
   context.save();
   context.globalAlpha = opacity;
-  context.drawImage(snapshot, x, y, width, height);
+  context.drawImage(snapshot, placement.x, placement.y, placement.width, placement.height);
   context.restore();
 }
 
 function drawPhoneShadow(context: CanvasRenderingContext2D, snapshot: HTMLCanvasElement) {
-  const scale = Math.min(790 / snapshot.width, 1690 / snapshot.height);
-  const width = snapshot.width * scale;
-  const height = snapshot.height * scale;
-  const x = (videoWidth - width) / 2;
-  const y = (videoHeight - height) / 2;
+  const placement = getPhonePlacement(snapshot);
 
   context.save();
   context.fillStyle = "rgba(17, 35, 28, 0.16)";
@@ -162,14 +183,86 @@ function drawPhoneShadow(context: CanvasRenderingContext2D, snapshot: HTMLCanvas
   context.shadowBlur = 70;
   context.shadowOffsetY = 32;
   context.beginPath();
-  context.roundRect(x + 8, y + 8, width - 16, height - 16, width * 0.1);
+  context.roundRect(
+    placement.x + 8,
+    placement.y + 8,
+    placement.width - 16,
+    placement.height - 16,
+    placement.width * 0.1,
+  );
   context.fill();
+  context.restore();
+}
+
+function animationEase(progress: number) {
+  const target = Math.min(1, Math.max(0, progress));
+  let low = 0;
+  let high = 1;
+  let time = target;
+
+  for (let iteration = 0; iteration < 10; iteration += 1) {
+    time = (low + high) / 2;
+    const inverse = 1 - time;
+    const x = 3 * inverse * inverse * time * 0.2 + 3 * inverse * time * time * 0.2 + time ** 3;
+    if (x < target) low = time;
+    else high = time;
+  }
+
+  const inverse = 1 - time;
+  return 3 * inverse * inverse * time * 0.8 + 3 * inverse * time * time + time ** 3;
+}
+
+function drawAnimatedBubble(
+  context: CanvasRenderingContext2D,
+  snapshot: VideoSnapshot,
+  progress: number,
+) {
+  if (!snapshot.bubble) return;
+  const placement = getPhonePlacement(snapshot.full);
+  const bubble = snapshot.bubble;
+  const eased = animationEase(progress);
+  const x = placement.x + bubble.x * placement.scale;
+  const y = placement.y + bubble.y * placement.scale;
+  const width = bubble.width * placement.scale;
+  const height = bubble.height * placement.scale;
+  const radius = bubble.radius * placement.scale;
+  const tail = 8 * bubble.cssScale * placement.scale;
+  const translateY = 9 * bubble.cssScale * placement.scale * (1 - eased);
+  const bubbleScale = 0.985 + 0.015 * eased;
+  const centerX = x + width / 2;
+  const centerY = y + height / 2;
+
+  context.save();
+  context.globalAlpha = eased;
+  context.translate(centerX, centerY + translateY);
+  context.scale(bubbleScale, bubbleScale);
+  context.translate(-centerX, -centerY);
+  context.beginPath();
+  context.roundRect(x, y, width, height, radius);
+  if (bubble.direction === "incoming") {
+    context.moveTo(x + 1, y);
+    context.lineTo(x - tail, y);
+    context.lineTo(x + 1, y + tail);
+  } else {
+    context.moveTo(x + width - 1, y);
+    context.lineTo(x + width + tail, y + tail);
+    context.lineTo(x + width - 1, y);
+  }
+  context.closePath();
+  context.clip();
+  context.drawImage(
+    snapshot.full,
+    placement.x,
+    placement.y,
+    placement.width,
+    placement.height,
+  );
   context.restore();
 }
 
 function drawVideoFrame(
   context: CanvasRenderingContext2D,
-  snapshots: HTMLCanvasElement[],
+  snapshots: VideoSnapshot[],
   elapsed: number,
 ) {
   drawVideoBackground(context);
@@ -179,12 +272,13 @@ function drawVideoFrame(
     ? 1
     : Math.min(1, Math.max(0, (elapsed - videoRevealTimes[safeStep]) / videoTransitionDuration));
 
-  drawPhoneShadow(context, snapshots[safeStep]);
+  const snapshot = snapshots[safeStep];
+  drawPhoneShadow(context, snapshot.full);
   if (safeStep > 0 && transition < 1) {
-    drawPhoneSnapshot(context, snapshots[safeStep - 1]);
-    drawPhoneSnapshot(context, snapshots[safeStep], transition);
+    drawPhoneSnapshot(context, snapshot.base);
+    drawAnimatedBubble(context, snapshot, transition);
   } else {
-    drawPhoneSnapshot(context, snapshots[safeStep]);
+    drawPhoneSnapshot(context, snapshot.full);
   }
 }
 
@@ -479,16 +573,54 @@ export default function Home() {
       if (!capturePhone) throw new Error("The phone mockup is not ready.");
 
       await document.fonts.ready;
-      const snapshots: HTMLCanvasElement[] = [];
+      const snapshots: VideoSnapshot[] = [];
       for (let step = 0; step < videoRevealTimes.length; step += 1) {
         flushSync(() => setCaptureStep(step));
         await waitForPaint();
-        snapshots.push(await html2canvas(capturePhone, {
+        const full = await html2canvas(capturePhone, {
           backgroundColor: null,
           logging: false,
           scale: 3,
           useCORS: true,
-        }));
+        });
+        let base = full;
+        let bubble: VideoBubbleBounds | undefined;
+
+        if (step > 0) {
+          const messages = capturePhone.querySelectorAll<HTMLElement>(".demo-message");
+          const newestMessage = messages[step - 1];
+          if (newestMessage) {
+            const phoneRect = capturePhone.getBoundingClientRect();
+            const bubbleRect = newestMessage.getBoundingClientRect();
+            const pixelScale = full.width / phoneRect.width;
+            const styles = window.getComputedStyle(newestMessage);
+            bubble = {
+              x: (bubbleRect.left - phoneRect.left) * pixelScale,
+              y: (bubbleRect.top - phoneRect.top) * pixelScale,
+              width: bubbleRect.width * pixelScale,
+              height: bubbleRect.height * pixelScale,
+              radius: parseFloat(styles.borderBottomRightRadius) * pixelScale,
+              cssScale: pixelScale,
+              direction: newestMessage.classList.contains("incoming") ? "incoming" : "outgoing",
+            };
+
+            const previousVisibility = newestMessage.style.visibility;
+            newestMessage.style.visibility = "hidden";
+            try {
+              await waitForPaint();
+              base = await html2canvas(capturePhone, {
+                backgroundColor: null,
+                logging: false,
+                scale: 3,
+                useCORS: true,
+              });
+            } finally {
+              newestMessage.style.visibility = previousVisibility;
+            }
+          }
+        }
+
+        snapshots.push({ full, base, bubble });
       }
 
       const canvas = document.createElement("canvas");
