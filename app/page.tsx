@@ -706,8 +706,11 @@ export default function Home() {
         { mimeType: "video/webm", extension: "webm" },
         { mimeType: "video/webm;codecs=vp9", extension: "webm" },
       ];
-      const formats = isAndroid ? [...webmFormats, ...mp4Formats] : [...mp4Formats, ...webmFormats];
+      const formats = isAndroid ? webmFormats.slice(0, 1) : [...mp4Formats, ...webmFormats];
       const format = formats.find(({ mimeType }) => MediaRecorder.isTypeSupported(mimeType));
+      if (isAndroid && !format) {
+        throw new Error("This Android browser cannot encode WebM with VP8.");
+      }
       stream = canvas.captureStream(videoProfile.frameRate);
       const recorder = new MediaRecorder(stream, {
         ...(format ? { mimeType: format.mimeType } : {}),
