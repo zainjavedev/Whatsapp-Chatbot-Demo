@@ -123,11 +123,25 @@ function isPracticeType(value: string | null): value is PracticeType {
   return value === "single" || value === "team";
 }
 
-const videoWidth = 1080;
-const videoHeight = 1920;
 const videoDuration = 7200;
 const videoRevealTimes = [0, 550, 1650, 2950, 3850, 4750, 5850];
 const videoTransitionDuration = 200;
+
+const desktopVideoProfile = {
+  width: 1080,
+  height: 1920,
+  snapshotScale: 3,
+  frameRate: 30,
+  bitRate: 10_000_000,
+};
+
+const androidVideoProfile = {
+  width: 720,
+  height: 1280,
+  snapshotScale: 2,
+  frameRate: 24,
+  bitRate: 4_000_000,
+};
 
 type VideoBubbleBounds = {
   x: number;
@@ -152,29 +166,34 @@ function waitForPaint() {
 }
 
 function drawVideoBackground(context: CanvasRenderingContext2D) {
-  const background = context.createLinearGradient(0, 0, videoWidth, videoHeight);
+  const { width, height } = context.canvas;
+  const background = context.createLinearGradient(0, 0, width, height);
   background.addColorStop(0, "#f8f4eb");
   background.addColorStop(1, "#dfe9e2");
   context.fillStyle = background;
-  context.fillRect(0, 0, videoWidth, videoHeight);
+  context.fillRect(0, 0, width, height);
 
-  const glow = context.createRadialGradient(760, 720, 20, 760, 720, 600);
+  const glowX = width * 0.704;
+  const glowY = height * 0.375;
+  const glow = context.createRadialGradient(glowX, glowY, width * 0.019, glowX, glowY, width * 0.556);
   glow.addColorStop(0, "rgba(216, 239, 87, 0.5)");
   glow.addColorStop(1, "rgba(216, 239, 87, 0)");
   context.fillStyle = glow;
-  context.fillRect(0, 0, videoWidth, videoHeight);
+  context.fillRect(0, 0, width, height);
 }
 
-function getPhonePlacement(snapshot: HTMLCanvasElement) {
-  const scale = Math.min(790 / snapshot.width, 1690 / snapshot.height);
+function getPhonePlacement(context: CanvasRenderingContext2D, snapshot: HTMLCanvasElement) {
+  const canvasWidth = context.canvas.width;
+  const canvasHeight = context.canvas.height;
+  const scale = Math.min(canvasWidth * 0.732 / snapshot.width, canvasHeight * 0.88 / snapshot.height);
   const width = snapshot.width * scale;
   const height = snapshot.height * scale;
   return {
     scale,
     width,
     height,
-    x: (videoWidth - width) / 2,
-    y: (videoHeight - height) / 2,
+    x: (canvasWidth - width) / 2,
+    y: (canvasHeight - height) / 2,
   };
 }
 
@@ -183,7 +202,7 @@ function drawPhoneSnapshot(
   snapshot: HTMLCanvasElement,
   opacity = 1,
 ) {
-  const placement = getPhonePlacement(snapshot);
+  const placement = getPhonePlacement(context, snapshot);
 
   context.save();
   context.globalAlpha = opacity;
@@ -192,19 +211,20 @@ function drawPhoneSnapshot(
 }
 
 function drawPhoneShadow(context: CanvasRenderingContext2D, snapshot: HTMLCanvasElement) {
-  const placement = getPhonePlacement(snapshot);
+  const placement = getPhonePlacement(context, snapshot);
+  const outputScale = context.canvas.width / desktopVideoProfile.width;
 
   context.save();
   context.fillStyle = "rgba(17, 35, 28, 0.16)";
   context.shadowColor = "rgba(17, 35, 28, 0.34)";
-  context.shadowBlur = 70;
-  context.shadowOffsetY = 32;
+  context.shadowBlur = 70 * outputScale;
+  context.shadowOffsetY = 32 * outputScale;
   context.beginPath();
   context.roundRect(
-    placement.x + 8,
-    placement.y + 8,
-    placement.width - 16,
-    placement.height - 16,
+    placement.x + 8 * outputScale,
+    placement.y + 8 * outputScale,
+    placement.width - 16 * outputScale,
+    placement.height - 16 * outputScale,
     placement.width * 0.1,
   );
   context.fill();
@@ -235,7 +255,7 @@ function drawAnimatedBubble(
   progress: number,
 ) {
   if (!snapshot.bubble) return;
-  const placement = getPhonePlacement(snapshot.full);
+  const placement = getPhonePlacement(context, snapshot.full);
   const bubble = snapshot.bubble;
   const eased = animationEase(progress);
   const x = placement.x + bubble.x * placement.scale;
@@ -613,6 +633,8 @@ export default function Home() {
     let stream: MediaStream | null = null;
 
     try {
+      const isAndroid = /Android/i.test(navigator.userAgent);
+      const videoProfile = isAndroid ? androidVideoProfile : desktopVideoProfile;
       const capturePhone = captureStageRef.current?.querySelector<HTMLElement>(".phone-frame");
       if (!capturePhone) throw new Error("The phone mockup is not ready.");
 
@@ -624,7 +646,7 @@ export default function Home() {
         const full = await html2canvas(capturePhone, {
           backgroundColor: null,
           logging: false,
-          scale: 3,
+          scale: videoProfile.snapshotScale,
           useCORS: true,
         });
         let base = full;
@@ -655,7 +677,7 @@ export default function Home() {
               base = await html2canvas(capturePhone, {
                 backgroundColor: null,
                 logging: false,
-                scale: 3,
+                scale: videoProfile.snapshotScale,
                 useCORS: true,
               });
             } finally {
@@ -668,24 +690,28 @@ export default function Home() {
       }
 
       const canvas = document.createElement("canvas");
-      canvas.width = videoWidth;
-      canvas.height = videoHeight;
+      canvas.width = videoProfile.width;
+      canvas.height = videoProfile.height;
       const context = canvas.getContext("2d");
       if (!context || typeof canvas.captureStream !== "function" || typeof MediaRecorder === "undefined") {
         throw new Error("Video export is not supported in this browser.");
       }
 
-      const formats = [
+      const mp4Formats = [
         { mimeType: "video/mp4;codecs=avc1.42E01E", extension: "mp4" },
         { mimeType: "video/mp4", extension: "mp4" },
-        { mimeType: "video/webm;codecs=vp9", extension: "webm" },
-        { mimeType: "video/webm", extension: "webm" },
       ];
+      const webmFormats = [
+        { mimeType: "video/webm;codecs=vp8", extension: "webm" },
+        { mimeType: "video/webm", extension: "webm" },
+        { mimeType: "video/webm;codecs=vp9", extension: "webm" },
+      ];
+      const formats = isAndroid ? [...webmFormats, ...mp4Formats] : [...mp4Formats, ...webmFormats];
       const format = formats.find(({ mimeType }) => MediaRecorder.isTypeSupported(mimeType));
-      stream = canvas.captureStream(30);
+      stream = canvas.captureStream(videoProfile.frameRate);
       const recorder = new MediaRecorder(stream, {
         ...(format ? { mimeType: format.mimeType } : {}),
-        videoBitsPerSecond: 10_000_000,
+        videoBitsPerSecond: videoProfile.bitRate,
       });
       const chunks: BlobPart[] = [];
       const recording = new Promise<Blob>((resolve, reject) => {
@@ -712,6 +738,11 @@ export default function Home() {
         requestAnimationFrame(renderFrame);
       });
       await new Promise((resolve) => window.setTimeout(resolve, 180));
+      if (recorder.state !== "recording") {
+        throw new Error("The browser stopped recording before the demo finished.");
+      }
+      recorder.requestData();
+      await new Promise((resolve) => window.setTimeout(resolve, isAndroid ? 350 : 180));
       recorder.stop();
 
       const blob = await recording;
